@@ -211,10 +211,6 @@ for (n in seq_along(comp_list)){
 SNPS_data <- comp_list$SNPS
 IBM_data <- comp_list$IBM
 MSFT_data <- comp_list$MSFT
-View(SNPS_data)
-unique(SNPS_data$signal_MACD)
-unique(SNPS_data$signal_RSI)
-unique(SNPS_data$signal_KD)
 ```
 
 
@@ -223,12 +219,6 @@ unique(SNPS_data$signal_KD)
 
 
 # Backtest
-```{r}
-quick_test_list <- list_names
-
-
-```
-
 
 ```{r}
 # data should include the signal outcomes, the price of the stock
@@ -265,7 +255,7 @@ signal_return <- function(data, start_date, signal_name){
   latest_capital <- current_capital + (stock_held * data$Close[nrow(data)])
   
   signal_return <- round((latest_capital - initial_capital) / initial_capital * 100,2)
-  annualized_return <- round((initial_capital/latest_capital)^(365/as.numeric((max(data$Date)-min(data$Date))))-1, 4)*100
+  annualized_return <- round((latest_capital/initial_capital)^(365/as.numeric((max(data$Date)-min(data$Date))))-1, 4)*100
   
   return(c(signal_return, annualized_return))
 }
