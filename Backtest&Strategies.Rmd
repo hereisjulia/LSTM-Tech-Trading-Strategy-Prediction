@@ -6,10 +6,17 @@ output: html_document
 ---
 # Strategies Building
 
-## Data Cleaning
-```{r data cleaning}
+
+This Rmd file is only for building the strategy.
+
+```{r}
 library(readxl)
 library(tidyverse)
+```
+
+
+## Data Cleaning
+```{r data cleaning}
 stock_data <- read_excel("Raw data from BBG.xlsx", sheet = 2)
 colnames(stock_data) <- as.character(unlist(stock_data[1, ]))
 stock_data <- stock_data[-1,]
@@ -221,24 +228,35 @@ for (n in seq_along(comp_list)){
 ### OBV
 
 ```{r}
+days <- 26*3
+
 OBV_signal <- function(data){
-  data$signal_OBV <- rep(0, length(data$Close))
+  data$signal_OBV <- rep(0, length(data$OBV))
   
   # Bullish Accumulation Signal
-  n <- length(data$OBV)
-  
+  ## 當 OBV 持續橫盤整理超過三個月，並且隨後 OBV 突破上升時，標記為多方積攢信號 (label = 1）
+  for (i in (days+1):length(data$OBV)){
+    dates <- data$Date[(i-days):i]
+    
+    if ((all(data$OBV[(i-days):i] < data$OBV[i]))){
+      if (data$OBV[i] > max(data$OBV[(i-days):i])){
+        data$signal_OBV[i] <- 1
+      }
+    }
+  }
   
   #Bullish Divergence Signal during Price Decline
-  data$signal_OBV[data$Close < lag(data$Close) & data$OBV > lag(data$OBV) & data$OBV > 0] <- 1
+  data$signal_OBV <- ifelse(data$Close > lag(data$Close) & data$OBV < lag(data$OBV), 1, data$signal_OBV)
+  #data$signal_OBV[data$Close < lag(data$Close) & data$OBV > lag(data$OBV)] <- 1
   
   #Bearish Divergence Signal during Price Increase
-  data$signal_OBV[data$Close > lag(data$Close) & data$OBV < lag(data$OBV)] <- -1
+  data$signal_OBV <- ifelse(data$Close > lag(data$Close) & data$OBV < lag(data$OBV), -1, data$signal_OBV)
   
   #Bullish Trend Signal
-  data$signal_OBV[data$OBV > lag(data$OBV) & data$Close > lag(data$Close)] <- 1
+  data$signal_OBV <- ifelse(data$OBV > lag(data$OBV) & data$Close > lag(data$Close), 1, data$signal_OBV)
 
   #Bearish Signal during OBV Acceleration
-  data$signal_OBV[c(NA, diff(diff(data$OBV))) > 0 & c(NA, diff(diff(data$Close))) <= 0] <- -1
+  data$signal_OBV<- ifelse(c(NA, diff(diff(data$OBV))) > 0 & c(NA, diff(diff(data$Close))) <= 0 & c(NA, diff(data$Close)) < 0, -1, data$signal_OBV)
   
   return(data)
 }
@@ -247,25 +265,15 @@ for (n in seq_along(comp_list)){
   comp_list[[n]] <- OBV_signal(comp_list[[n]])
 }
 
-View(comp_list$SNPS)
-```
 
-```{r}
-nrow(comp_list$SNPS["OBV_signal"==-1,])
-```
-
-```{r}
 SNPS_data <- comp_list$SNPS
 IBM_data <- comp_list$IBM
 MSFT_data <- comp_list$MSFT
 ```
 
-
-
-
-
-
 # Backtest
+
+## Single Strategies
 
 ```{r}
 # data should include the signal outcomes, the price of the stock
@@ -281,7 +289,6 @@ signal_return <- function(data, start_date, signal_name){
   stock_held <- 0
   previous_signal <- 0
   
-  # Assumption: no short sell.
   for (i in 1:nrow(data)){
     current_signal <- data[[signal_name]][i]
     current_price <- data$Close[i]
@@ -294,6 +301,10 @@ signal_return <- function(data, start_date, signal_name){
     if (current_signal == -1 & stock_held > 0){
       current_capital <- current_capital + stock_held * current_price
       stock_held <- 0
+    }
+    
+    else{
+      current_capital <- current_capital
     }
     
     previous_signal <- current_signal
@@ -310,46 +321,108 @@ signal_return <- function(data, start_date, signal_name){
 
 
 ```{r}
-signals <- c("signal_MACD", "signal_RSI", "signal_KD")
+signals <- c("signal_MACD", "signal_RSI", "signal_KD", "signal_OBV")
+
 signal_returns <- matrix(0, nrow = length(signals), ncol = length(list_names))
-rownames(signal_returns) <- list_names
-colnames(signal_returns) <- signals
+rownames(signal_returns) <- signals
+colnames(signal_returns) <- list_names
 
 for (j in 1:length(signals)){
   for(i in 1:length(list_names)) {
     current_data <- comp_list[[list_names[i]]]
-    signal_returns[i, j] <- signal_return(current_data, start_date, signals[j])[1]
+    signal_returns[j, i] <- signal_return(current_data, start_date, signals[j])[1]
   }
 }
-signal_returns <- t(signal_returns)
-
 
 # Annualized Return (%)
 annualized_return <- matrix(0, nrow = length(signals), ncol = length(list_names))
-rownames(annualized_return) <- list_names
-colnames(annualized_return) <- signals
+rownames(annualized_return) <- signals 
+colnames(annualized_return) <- list_names
 
 for (j in 1:length(signals)){
   for(i in 1:length(list_names)) {
     current_data <- comp_list[[list_names[i]]]
-    annualized_return[i, j] <- signal_return(current_data, start_date, signals[j])[2]
+    annualized_return[j, i] <- signal_return(current_data, start_date, signals[j])[2]
   }
 }
-
-annualized_return <- t(annualized_return)
 
 print(signal_returns)
 print(annualized_return)
 ```
+I'm wondering why OBV perform so bad.
+```{r plot}
+library(ggplot2)
 
-```{r}
-
-
+ggplot(SNPS_data[500:600,], aes(x = Date))+ 
+  geom_rect(aes(xmin = lag(Date), xmax = Date, fill = as.factor(signal_OBV)),
+              ymin = -Inf, ymax = Inf, alpha = 0.5)+
+  geom_line(aes(y = Close)) +
+  geom_col(aes(y = Volume/1000000)) 
 ```
 
+## Construct Strategies
+```{r}
+print(annualized_return)
+```
+Now we got all the technical indicators and also the signals for MACD, RSI, KD, and OBV.
+Lets try to figure out how to build this!
+```{r}
+signals <- c("signal_MACD", "signal_RSI", "signal_KD", "signal_OBV")
+all_signals <- cbind(comp_list$SNPS[,c("Date","Close")],comp_list$SNPS[,signals])
+signals_comb <- c("signal_MACD", "signal_RSI", "signal_OBV") #"signal_KD"
 
+Combo <- cbind(Date = all_signals[,"Date"],
+               Close = all_signals[,"Close"], all_signals[,signals_comb])
 
+Signal_combined <- function(data){
+  
+  data[, signals_comb[1:2]][data[, signals_comb[1:2]] == -1] <- 0
+  data$signal_comb <- rep(0, length(Combo$signal_MACD))
 
+  data$signal_comb <- ifelse(rowSums(data[, signals_comb], na.rm = TRUE) == 0, 0,
+                             ifelse(rowSums(data[, signals_comb], na.rm = TRUE) >= 2, 1, data$signal_comb))
+  
+  data[, signals_comb[1:2]][data[, signals_comb[1:2]] == 0] <- -1
+  
+  return(data)
+}
+```
+
+#### 我試著回測但figure不出要怎用
+```{r}
+a <- Signal_combined(Combo)
+a <- replace(a, is.na(a), 0)
+a
+signals <- names(a)[-c(1:2)]
+signals
+signal_return(a, start_date, signals)
+
+signal_returns <- matrix(0, nrow = length(signals), ncol = length(list_names))
+rownames(signal_returns) <- signals
+colnames(signal_returns) <- list_names
+
+for (j in 1:length(signals)){
+  for(i in 1:length(list_names)) {
+    current_data <- comp_list[[list_names[i]]]
+    signal_returns[j, i] <- signal_return(current_data, start_date, signals[j])[1]
+  }
+}
+
+# Annualized Return (%)
+annualized_return <- matrix(0, nrow = length(signals), ncol = length(list_names))
+rownames(annualized_return) <- signals 
+colnames(annualized_return) <- list_names
+
+for (j in 1:length(signals)){
+  for(i in 1:length(list_names)) {
+    current_data <- comp_list[[list_names[i]]]
+    annualized_return[j, i] <- signal_return(current_data, start_date, signals[j])[2]
+  }
+}
+
+print(signal_returns)
+print(annualized_return)
+```
 
 
 
