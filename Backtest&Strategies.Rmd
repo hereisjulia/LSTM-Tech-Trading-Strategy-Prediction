@@ -368,34 +368,31 @@ Now we got all the technical indicators and also the signals for MACD, RSI, KD, 
 Lets try to figure out how to build this!
 ```{r}
 signals <- c("signal_MACD", "signal_RSI", "signal_KD", "signal_OBV")
-all_signals <- cbind(comp_list$SNPS[,c("Date","Close")],comp_list$SNPS[,signals])
 signals_comb <- c("signal_MACD", "signal_RSI", "signal_OBV") #"signal_KD"
-
-Combo <- cbind(Date = all_signals[,"Date"],
-               Close = all_signals[,"Close"], all_signals[,signals_comb])
 
 Signal_combined <- function(data){
   
   data[, signals_comb[1:2]][data[, signals_comb[1:2]] == -1] <- 0
-  data$signal_comb <- rep(0, length(Combo$signal_MACD))
+  data$signal_comb <- rep(0, length(data$signal_MACD))
 
-  data$signal_comb <- ifelse(rowSums(data[, signals_comb], na.rm = TRUE) == 0, 0,
-                             ifelse(rowSums(data[, signals_comb], na.rm = TRUE) >= 2, 1, data$signal_comb))
+  data$signal_comb <- ifelse(rowSums(data[, signals_comb], na.rm = TRUE) == 0, -1,
+                             ifelse(rowSums(data[, signals_comb], na.rm = TRUE) >= 1, 1, data$signal_comb))
   
   data[, signals_comb[1:2]][data[, signals_comb[1:2]] == 0] <- -1
   
   return(data)
 }
+
+
+for (n in seq_along(comp_list)){
+  comp_list[[n]] <- Signal_combined(comp_list[[n]])
+}
+
+comp_list$SNPS
 ```
 
-#### 我試著回測但figure不出要怎用
 ```{r}
-a <- Signal_combined(Combo)
-a <- replace(a, is.na(a), 0)
-a
-signals <- names(a)[-c(1:2)]
-signals
-signal_return(a, start_date, signals)
+signals <- c("signal_MACD", "signal_RSI", "signal_KD", "signal_OBV", "signal_comb")
 
 signal_returns <- matrix(0, nrow = length(signals), ncol = length(list_names))
 rownames(signal_returns) <- signals
@@ -423,8 +420,31 @@ for (j in 1:length(signals)){
 print(signal_returns)
 print(annualized_return)
 ```
+# Combine Data with Macro
+
+```{r}
+Macros <- read_excel("Raw data from BBG.xlsx", sheet ="Macros_Completed")
 
 
+for (n in 1:length(comp_list)){
+  comp_list[[n]] <- merge(Macros, comp_list[[n]], by = "Date", all.x = TRUE)
+}
+
+comp_list$MSFT
+```
+
+# Export the Strategy data
+
+```{r}
+library(writexl)
+
+write_xlsx(comp_list, path = "Julia_strategy.xlsx")
+```
+
+
+```{r}
+str(comp_list$SNPS)
+```
 
 
 
